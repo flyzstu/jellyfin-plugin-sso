@@ -1,0 +1,153 @@
+name: Update Plugin Manifest
+
+# Maintains manifest.json on the dedicated "artifacts" branch.
+# Called by publish.yml after the release assets are uploaded; can also be
+# run manually (workflow_dispatch) to (re-)add a release to the manifest.
+#
+# The raw URL to use as a Jellyfin plugin repository is:
+#   https://raw.githubusercontent.com/<owner>/<repo>/artifacts/manifest.json
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag to add to the manifest (defaults to the latest release)"
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to add to the manifest (defaults to the latest release)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-manifest
+  cancel-in-progress: false
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch (build.yaml is the source of truth for targetAbi)
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Checkout artifacts branch (holds manifest.json)
+        uses: actions/checkout@v4
+        with:
+          ref: artifacts
+          path: artifacts-branch
+
+      - name: Resolve release tag
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_INPUT: ${{ inputs.tag_name }}
+        run: |
+          TAG="${TAG_INPUT}"
+          if [ -z "$TAG" ]; then
+            TAG="$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName)"
+          fi
+          BODY="$(gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq .body)"
+          {
+            echo "tag=$TAG"
+            echo "body<<MANIFEST_EOF"
+            echo "$BODY"
+            echo "MANIFEST_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download release zip asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p download
+          gh release download "${{ steps.rel.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern '*.zip' --dir download --clobber
+          COUNT="$(find download -name '*.zip' | wc -l)"
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 zip asset on ${{ steps.rel.outputs.tag }}, found $COUNT"
+            exit 1
+          fi
+          ls -l download
+
+      - name: Insert version into manifest.json
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+          RELEASE_BODY: ${{ steps.rel.outputs.body }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          owner = os.environ["GITHUB_REPOSITORY_OWNER"]
+          version = re.sub(r"^v", "", tag, count=1)
+          body = (os.environ.get("RELEASE_BODY") or "").strip() or f"Release {tag}"
+
+          zip_path = next(Path("download").glob("*.zip"))
+          md5 = hashlib.md5(zip_path.read_bytes()).hexdigest()
+          source_url = f"https://github.com/{repo}/releases/download/{tag}/{zip_path.name}"
+          timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          build_yaml = Path("src/build.yaml").read_text()
+          m = re.search(r'^targetAbi:\s*"?([^"\r\n]+)"?\s*$', build_yaml, re.M)
+          if not m:
+              raise SystemExit("targetAbi not found in src/build.yaml")
+          target_abi = m.group(1).strip()
+
+          manifest_path = Path("artifacts-branch/manifest.json")
+          if manifest_path.exists():
+              manifest = json.loads(manifest_path.read_text())
+          else:
+              manifest = [{
+                  "guid": "505ce9d1-d916-42fa-86ca-673ef241d7df",
+                  "name": "SSO Authentication",
+                  "overview": "Authenticate users against an SSO provider (OIDC/SAML).",
+                  "description": "This plugin allows users to sign in through an SSO provider "
+                                 "(such as Authelia, authentik, Keycloak, Google) via OpenID "
+                                 "Connect or SAML.",
+                  "owner": owner,
+                  "category": "Authentication",
+                  "imageUrl": "https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/main/img/logo.png",
+                  "versions": [],
+              }]
+
+          entry = manifest[0]
+          entry["guid"] = "505ce9d1-d916-42fa-86ca-673ef241d7df"
+          entry["owner"] = owner
+          versions = [v for v in entry.get("versions", []) if v.get("version") != version]
+          versions.insert(0, {
+              "version": version,
+              "changelog": body,
+              "targetAbi": target_abi,
+              "sourceUrl": source_url,
+              "checksum": md5,
+              "timestamp": timestamp,
+          })
+          entry["versions"] = versions
+
+          manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+          print(f"manifest: {version} | abi {target_abi} | md5 {md5}")
+          print(f"source: {source_url}")
+          PY
+
+      - name: Commit and push
+        run: |
+          cd artifacts-branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          if git diff --cached --quiet; then
+            echo "manifest already up to date"
+          else
+            git commit -m "manifest: add ${{ steps.rel.outputs.tag }}"
+            git push origin artifacts
+          fi
