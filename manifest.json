@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/main/img/logo.png",
     "versions": [
       {
+        "version": "4.1.0.1",
+        "changelog": "将 SSO 设置页加入左侧主菜单插件分组（'SSO设置'）。",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/flyzstu/jellyfin-plugin-sso/releases/download/v4.1.0.1/sso-authentication_4.1.0.1.zip",
+        "checksum": "54dd047d91f0c31de3545fcd8a5af2b9",
+        "timestamp": "2026-10-07T07:02:10Z"
+      },
+      {
         "version": "4.1.0.0",
         "changelog": "Adapted to Jellyfin 12.x (.NET 10):\n\n- retarget net9.0 → **net10.0**(服务端 12.2 为 net10.0,10.11 插件无法在 12.x 加载)\n- Jellyfin.Controller / Jellyfin.Model 10.11.0 → **12.2.0**(ExcludeAssets=runtime,对齐官方插件模板)\n- manifest targetAbi → **12.0.0.0**(兼容 Jellyfin 12.0–12.2+)\n- 移除 System.Security.Cryptography.Xml 包引用(.NET 10 运行时已内置,顺带消除 Pkcs 6.0.1 高危传递依赖)\n- Newtonsoft.Json 13.0.3 → 13.0.4(与服务器一致)\n- Web 端完成页 appVersion → 12.2.0\n\n基于已归档的 9p4/jellyfin-plugin-sso,由本 fork 维护。\n安装:控制台 → 插件 → 存储库 添加 `https://raw.githubusercontent.com/flyzstu/jellyfin-plugin-sso/artifacts/manifest.json`",
         "targetAbi": "12.0.0.0",
