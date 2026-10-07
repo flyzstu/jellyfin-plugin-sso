@@ -449,3 +449,5 @@ $RECYCLE.BIN/
 ##
 .vscode/*
 .vscode
+dist/
+_dist/

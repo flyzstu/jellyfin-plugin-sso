@@ -50,6 +50,10 @@ public class SSOPlugin : BasePlugin<PluginConfiguration>, IPlugin, IHasWebPages
             new PluginPageInfo
             {
                 Name = Name,
+                DisplayName = "SSO设置",
+                EnableInMainMenu = true,
+                MenuSection = "plugins",
+                MenuIcon = "vpn_key",
                 EmbeddedResourcePath = $"{GetType().Namespace}.Config.configPage.html"
             },
             new PluginPageInfo
